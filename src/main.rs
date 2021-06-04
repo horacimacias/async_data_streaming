@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::prelude::*;
 use clap::Clap;
 use std::io::{Error, ErrorKind};
@@ -19,6 +20,7 @@ struct Opts {
 ///
 /// A trait to provide a common interface for all signal calculations.
 ///
+#[async_trait]
 trait StockSignal {
     ///
     /// The signal's data type.
@@ -32,35 +34,38 @@ trait StockSignal {
     ///
     /// The signal (using the provided type) or `None` on error/invalid data.
     ///
-    fn calculate(&self, series: &[f64]) -> Option<Self::SignalType>;
+    async fn calculate(&self, series: &[f64]) -> Option<Self::SignalType>;
 }
 
 struct PriceDifference {}
 
+#[async_trait]
 impl StockSignal for PriceDifference {
     type SignalType = (f64, f64);
 
-    fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
+    async fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
         price_diff(a)
     }
 }
 
 struct MaxPrice {}
 
+#[async_trait]
 impl StockSignal for MaxPrice {
     type SignalType = f64;
 
-    fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
+    async fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
         max(a)
     }
 }
 
 struct MinPrice {}
 
+#[async_trait]
 impl StockSignal for MinPrice {
     type SignalType = f64;
 
-    fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
+    async fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
         min(a)
     }
 }
@@ -68,11 +73,11 @@ impl StockSignal for MinPrice {
 struct WindowedSMA {
     window_size: usize,
 }
-
+#[async_trait]
 impl StockSignal for WindowedSMA {
     type SignalType = Vec<f64>;
 
-    fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
+    async fn calculate(&self, a: &[f64]) -> Option<Self::SignalType> {
         n_window_sma(self.window_size, a)
     }
 }
@@ -138,7 +143,7 @@ fn min(series: &[f64]) -> Option<f64> {
 ///
 /// Retrieve data from a data source and extract the closing prices. Errors during download are mapped onto io::Errors as InvalidData.
 ///
-fn fetch_closing_data(
+async fn fetch_closing_data(
     symbol: &str,
     beginning: &DateTime<Utc>,
     end: &DateTime<Utc>,
@@ -147,6 +152,7 @@ fn fetch_closing_data(
 
     let response = provider
         .get_quote_history(symbol, *beginning, *end)
+        .await
         .map_err(|_| Error::from(ErrorKind::InvalidData))?;
     let mut quotes = response
         .quotes()
@@ -168,7 +174,7 @@ async fn main() -> std::io::Result<()> {
     // a simple way to output a CSV header
     println!("period start,symbol,price,change %,min,max,30d avg");
     for symbol in opts.symbols.split(',') {
-        let closes = fetch_closing_data(&symbol, &from, &to)?;
+        let closes = fetch_closing_data(&symbol, &from, &to).await?;
         if !closes.is_empty() {
             // min/max of the period. unwrap() because those are Option types
             let period_max: f64 = max(&closes).unwrap();
@@ -198,68 +204,74 @@ mod tests {
     #![allow(non_snake_case)]
     use super::*;
 
-    #[test]
-    fn test_PriceDifference_calculate() {
+    #[tokio::test]
+    async fn test_PriceDifference_calculate() {
         let signal = PriceDifference {};
-        assert_eq!(signal.calculate(&[]), None);
-        assert_eq!(signal.calculate(&[1.0]), Some((0.0, 0.0)));
-        assert_eq!(signal.calculate(&[1.0, 0.0]), Some((-1.0, -1.0)));
+        assert_eq!(signal.calculate(&[]).await, None);
+        assert_eq!(signal.calculate(&[1.0]).await, Some((0.0, 0.0)));
+        assert_eq!(signal.calculate(&[1.0, 0.0]).await, Some((-1.0, -1.0)));
         assert_eq!(
-            signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0]),
+            signal
+                .calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0])
+                .await,
             Some((8.0, 4.0))
         );
         assert_eq!(
-            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]),
+            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]).await,
             Some((1.0, 1.0))
         );
     }
 
-    #[test]
-    fn test_MinPrice_calculate() {
+    #[tokio::test]
+    async fn test_MinPrice_calculate() {
         let signal = MinPrice {};
-        assert_eq!(signal.calculate(&[]), None);
-        assert_eq!(signal.calculate(&[1.0]), Some(1.0));
-        assert_eq!(signal.calculate(&[1.0, 0.0]), Some(0.0));
+        assert_eq!(signal.calculate(&[]).await, None);
+        assert_eq!(signal.calculate(&[1.0]).await, Some(1.0));
+        assert_eq!(signal.calculate(&[1.0, 0.0]).await, Some(0.0));
         assert_eq!(
-            signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0]),
+            signal
+                .calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0])
+                .await,
             Some(1.0)
         );
         assert_eq!(
-            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]),
+            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]).await,
             Some(0.0)
         );
     }
 
-    #[test]
-    fn test_MaxPrice_calculate() {
+    #[tokio::test]
+    async fn test_MaxPrice_calculate() {
         let signal = MaxPrice {};
-        assert_eq!(signal.calculate(&[]), None);
-        assert_eq!(signal.calculate(&[1.0]), Some(1.0));
-        assert_eq!(signal.calculate(&[1.0, 0.0]), Some(1.0));
+        assert_eq!(signal.calculate(&[]).await, None);
+        assert_eq!(signal.calculate(&[1.0]).await, Some(1.0));
+        assert_eq!(signal.calculate(&[1.0, 0.0]).await, Some(1.0));
         assert_eq!(
-            signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0]),
+            signal
+                .calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0])
+                .await,
             Some(10.0)
         );
         assert_eq!(
-            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]),
+            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]).await,
             Some(6.0)
         );
     }
 
-    #[test]
-    fn test_WindowedSMA_calculate() {
+    #[tokio::test]
+    async fn test_WindowedSMA_calculate() {
         let series = vec![2.0, 4.5, 5.3, 6.5, 4.7];
 
         let signal = WindowedSMA { window_size: 3 };
         assert_eq!(
-            signal.calculate(&series),
+            signal.calculate(&series).await,
             Some(vec![3.9333333333333336, 5.433333333333334, 5.5])
         );
 
         let signal = WindowedSMA { window_size: 5 };
-        assert_eq!(signal.calculate(&series), Some(vec![4.6]));
+        assert_eq!(signal.calculate(&series).await, Some(vec![4.6]));
 
         let signal = WindowedSMA { window_size: 10 };
-        assert_eq!(signal.calculate(&series), Some(vec![]));
+        assert_eq!(signal.calculate(&series).await, Some(vec![]));
     }
 }
