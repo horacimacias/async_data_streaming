@@ -1,21 +1,7 @@
 use async_trait::async_trait;
-use chrono::prelude::*;
-use clap::Clap;
+use chrono::{prelude::*, Duration};
 use std::io::{Error, ErrorKind};
 use yahoo_finance_api as yahoo;
-
-#[derive(Clap)]
-#[clap(
-    version = "1.0",
-    author = "Claus Matzinger",
-    about = "A Manning LiveProject: async Rust"
-)]
-struct Opts {
-    #[clap(short, long, default_value = "AAPL,MSFT,UBER,GOOG")]
-    symbols: String,
-    #[clap(short, long)]
-    from: String,
-}
 
 ///
 /// A trait to provide a common interface for all signal calculations.
@@ -90,15 +76,15 @@ impl StockSignal for WindowedSMA {
 /// A tuple `(absolute, relative)` difference.
 ///
 fn price_diff(a: &[f64]) -> Option<(f64, f64)> {
-    if !a.is_empty() {
+    if a.is_empty() {
+        None
+    } else {
         // unwrap is safe here even if first == last
         let (first, last) = (a.first().unwrap(), a.last().unwrap());
         let abs_diff = last - first;
         let first = if *first == 0.0 { 1.0 } else { *first };
         let rel_diff = abs_diff / first;
         Some((abs_diff, rel_diff))
-    } else {
-        None
     }
 }
 
@@ -122,11 +108,7 @@ fn n_window_sma(n: usize, series: &[f64]) -> Option<Vec<f64>> {
 /// Find the maximum in a series of f64
 ///
 fn max(series: &[f64]) -> Option<f64> {
-    if series.is_empty() {
-        None
-    } else {
-        Some(series.iter().fold(f64::MIN, |acc, q| acc.max(*q)))
-    }
+    series.iter().fold(None, |acc, q| acc.map(|v| v.max(*q)))
 }
 
 ///
@@ -157,46 +139,59 @@ async fn fetch_closing_data(
     let mut quotes = response
         .quotes()
         .map_err(|_| Error::from(ErrorKind::InvalidData))?;
-    if !quotes.is_empty() {
+    if quotes.is_empty() {
+        Ok(vec![])
+    } else {
         quotes.sort_by_cached_key(|k| k.timestamp);
         Ok(quotes.iter().map(|q| q.adjclose as f64).collect())
-    } else {
-        Ok(vec![])
     }
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    let opts = Opts::parse();
-    let from: DateTime<Utc> = opts.from.parse().expect("Couldn't parse 'from' date");
-    let to = Utc::now();
+const ALL_SYMBOLS : &str= "MMM,AOS,ABT,ABBV,ABMD,ACN,ATVI,ADBE,AAP,AMD,AES,AFL,A,APD,AKAM,ALK,ALB,ARE,ALXN,ALGN,ALLE,ADS,LNT,ALL,GOOGL,GOOG,MO,AMZN,AMCR,AEE,AAL,AEP,AXP,AIG,AMT,AWK,AMP,ABC,AME,AMGN,APH,ADI,ANSS,ANTM,AON,APA,AIV,AAPL,AMAT,APTV,ADM,ANET,AJG,AIZ,T,ATO,ADSK,ADP,AZO,AVB,AVY,BKR,BLL,BAC,BAX,BDX,BRK.B,BBY,BIIB,BLK,BA,BKNG,BWA,BXP,BSX,BMY,AVGO,BR,BF.B,CHRW,COG,CDNS,CPB,COF,CAH,KMX,CCL,CARR,CAT,CBOE,CBRE,CDW,CE,CNC,CNP,CTL,CERN,CF,SCHW,CHTR,CVX,CMG,CB,CHD,CI,CINF,CTAS,CSCO,C,CFG,CTXS,CME,CMS,KO,CTSH,CL,CMCSA,CMA,CAG,CXO,COP,ED,STZ,CPRT,GLW,CTVA,COST,COTY,CCI,CSX,CMI,CVS,DHI,DHR,DRI,DVA,DE,DAL,XRAY,DVN,DXCM,FANG,DLR,DFS,DISCA,DISCK,DISH,DG,DLTR,D,DPZ,DOV,DOW,DTE,DUK,DRE,DD,DXC,ETFC,EMN,ETN,EBAY,ECL,EIX,EW,EA,EMR,ETR,EOG,EFX,EQIX,EQR,ESS,EL,RE,EVRG,ES,EXC,EXPE,EXPD,EXR,XOM,FFIV,FB,FAST,FRT,FDX,FIS,FITB,FRC,FE,FISV,FLT,FLIR,FLS,FMC,F,FTNT,FTV,FBHS,FOXA,FOX,BEN,FCX,GPS,GRMN,IT,GD,GE,GIS,GM,GPC,GILD,GPN,GL,GS,GWW,HRB,HAL,HBI,HOG,HIG,HAS,HCA,PEAK,HSIC,HES,HPE,HLT,HFC,HOLX,HD,HON,HRL,HST,HWM,HPQ,HUM,HBAN,HII,IEX,IDXX,INFO,ITW,ILMN,INCY,IR,INTC,ICE,IBM,IP,IPG,IFF,INTU,ISRG,IVZ,IPGP,IQV,IRM,JBHT,JKHY,J,SJM,JNJ,JCI,JPM,JNPR,KSU,K,KEY,KEYS,KMB,KIM,KMI,KLAC,KSS,KHC,KR,LB,LHX,LH,LRCX,LW,LVS,LEG,LDOS,LEN,LLY,LNC,LIN,LYV,LKQ,LMT,L,LOW,LYB,MTB,MRO,MPC,MKTX,MAR,MMC,MLM,MAS,MA,MXIM,MKC,MCD,MCK,MDT,MRK,MET,MTD,MGM,MCHP,MU,MSFT,MAA,MHK,TAP,MDLZ,MNST,MCO,MS,MSI,MSCI,MYL,NDAQ,NOV,NTAP,NFLX,NWL,NEM,NWSA,NWS,NEE,NLSN,NKE,NI,NBL,JWN,NSC,NTRS,NOC,NLOK,NCLH,NRG,NUE,NVDA,NVR,ORLY,OXY,ODFL,OMC,OKE,ORCL,OTIS,PCAR,PKG,PH,PAYX,PAYC,PYPL,PNR,PBCT,PEP,PKI,PRGO,PFE,PM,PSX,PNW,PXD,PNC,PPG,PPL,PFG,PG,PGR,PLD,PRU,PEG,PSA,PHM,PVH,QRVO,QCOM,PWR,DGX,RL,RJF,RTX,O,REG,REGN,RF,RSG,RMD,RHI,ROK,ROL,ROP,ROST,RCL,SPGI,CRM,SBAC,SLB,STX,SEE,SRE,NOW,SHW,SPG,SWKS,SLG,SNA,SO,LUV,SWK,SBUX,STT,STE,SYK,SIVB,SYF,SNPS,SYY,TMUS,TROW,TTWO,TPR,TGT,TEL,FTI,TFX,TXN,TXT,BK,CLX,COO,HSY,MOS,TRV,DIS,TMO,TIF,TJX,TSCO,TT,TDG,TFC,TWTR,TSN,USB,UDR,ULTA,UAA,UA,UNP,UAL,UNH,UPS,URI,UHS,UNM,VFC,VLO,VAR,VTR,VRSN,VRSK,VZ,VRTX,VIAC,V,VNO,VMC,WRB,WAB,WBA,WMT,WM,WAT,WEC,WFC,WELL,WST,WDC,WU,WRK,WY,WHR,WMB,WLTW,WYNN,XEL,XRX,XLNX,XYL,YUM,ZBRA,ZBH,ZION,ZTS";
 
+#[tokio::main(flavor = "multi_thread", worker_threads = 500)]
+async fn main() -> std::io::Result<()> {
     // a simple way to output a CSV header
     println!("period start,symbol,price,change %,min,max,30d avg");
-    for symbol in opts.symbols.split(',') {
-        let closes = fetch_closing_data(&symbol, &from, &to).await?;
-        if !closes.is_empty() {
-            // min/max of the period. unwrap() because those are Option types
-            let period_max: f64 = max(&closes).unwrap();
-            let period_min: f64 = min(&closes).unwrap();
-            let last_price = *closes.last().unwrap_or(&0.0);
-            let (_, pct_change) = price_diff(&closes).unwrap_or((0.0, 0.0));
-            let sma = n_window_sma(30, &closes).unwrap_or_default();
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    loop {
+        interval.tick().await;
+        futures::future::join_all(ALL_SYMBOLS.split(',').into_iter().map(|symbol| {
+            tokio::spawn(async move {
+                let to = Utc.ymd(2021, 6, 3).and_hms_milli(8, 0, 0, 0); //Utc::now();
+                let from = to.checked_sub_signed(Duration::seconds(30)).unwrap();
+                dbg!(from, to, symbol);
+                match fetch_closing_data(&symbol, &from, &to).await {
+                    Ok(closes) => {
+                        if !closes.is_empty() {
+                            // min/max of the period. unwrap() because those are Option types
+                            let period_max: f64 = max(&closes).unwrap();
+                            let period_min: f64 = min(&closes).unwrap();
+                            let last_price = *closes.last().unwrap_or(&0.0);
+                            let (_, pct_change) = price_diff(&closes).unwrap_or((0.0, 0.0));
+                            let sma = n_window_sma(30, &closes).unwrap_or_default();
 
-            // a simple way to output CSV data
-            println!(
-                "{},{},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
-                from.to_rfc3339(),
-                symbol,
-                last_price,
-                pct_change * 100.0,
-                period_min,
-                period_max,
-                sma.last().unwrap_or(&0.0)
-            );
-        }
+                            // a simple way to output CSV data
+                            println!(
+                                "{},{},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
+                                from.to_rfc3339(),
+                                symbol,
+                                last_price,
+                                pct_change * 100.0,
+                                period_min,
+                                period_max,
+                                sma.last().unwrap_or(&0.0)
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Problems retrieving symbol {}: {}", symbol, e);
+                    }
+                };
+            })
+        }))
+        .await;
     }
-    Ok(())
 }
 
 #[cfg(test)]
