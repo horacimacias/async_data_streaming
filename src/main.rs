@@ -122,9 +122,11 @@ fn n_window_sma(n: usize, series: &[f64]) -> Option<Vec<f64>> {
 /// Find the maximum in a series of f64
 ///
 fn max(series: &[f64]) -> Option<f64> {
-    series
-        .iter()
-        .fold(None, |acc, q| acc.map(|v| v.max(*q)).or(Some(*q)))
+    if series.is_empty() {
+        None
+    } else {
+        Some(series.iter().fold(f64::MIN, |acc, q| acc.max(*q)))
+    }
 }
 
 ///
