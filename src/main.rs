@@ -180,38 +180,40 @@ async fn main() -> std::io::Result<()> {
             opts.symbols
                 .split(',')
                 .into_iter()
-                .map(|symbol| async move {
-                    match fetch_closing_data(&symbol, &from, &to).await {
-                        Ok(closes) => {
-                            if !closes.is_empty() {
-                                // min/max of the period. unwrap() because those are Option types
-                                let period_max: f64 = max(&closes).unwrap();
-                                let period_min: f64 = min(&closes).unwrap();
-                                let last_price = *closes.last().unwrap_or(&0.0);
-                                let (_, pct_change) = price_diff(&closes).unwrap_or((0.0, 0.0));
-                                let sma = n_window_sma(30, &closes).unwrap_or_default();
-
-                                // a simple way to output CSV data
-                                println!(
-                                    "{},{},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
-                                    from.to_rfc3339(),
-                                    symbol,
-                                    last_price,
-                                    pct_change * 100.0,
-                                    period_min,
-                                    period_max,
-                                    sma.last().unwrap_or(&0.0)
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Problems retrieving symbol {}: {}", symbol, e);
-                        }
-                    };
-                }),
+                .map(|symbol| handle_closing_data(&from, &to, symbol)),
         )
         .await;
     }
+}
+
+async fn handle_closing_data(from: &DateTime<Utc>, to: &DateTime<Utc>, symbol: &str) {
+    match fetch_closing_data(&symbol, &from, &to).await {
+        Ok(closes) => {
+            if !closes.is_empty() {
+                // min/max of the period. unwrap() because those are Option types
+                let period_max: f64 = max(&closes).unwrap();
+                let period_min: f64 = min(&closes).unwrap();
+                let last_price = *closes.last().unwrap_or(&0.0);
+                let (_, pct_change) = price_diff(&closes).unwrap_or((0.0, 0.0));
+                let sma = n_window_sma(30, &closes).unwrap_or_default();
+
+                // a simple way to output CSV data
+                println!(
+                    "{},{},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
+                    from.to_rfc3339(),
+                    symbol,
+                    last_price,
+                    pct_change * 100.0,
+                    period_min,
+                    period_max,
+                    sma.last().unwrap_or(&0.0)
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("Problems retrieving symbol {}: {}", symbol, e);
+        }
+    };
 }
 
 #[cfg(test)]
