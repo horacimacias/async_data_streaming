@@ -165,7 +165,7 @@ async fn fetch_closing_data(
     }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 500)]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     let opts = Opts::parse();
     let from: DateTime<Utc> = opts.from.parse().expect("Couldn't parse 'from' date");
