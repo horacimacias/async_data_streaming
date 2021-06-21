@@ -1,9 +1,12 @@
 use async_trait::async_trait;
 use chrono::prelude::*;
 use clap::Clap;
+//use futures_util::stream::StreamExt;
+use async_stream::stream;
+use futures_util::pin_mut;
+use futures_util::StreamExt;
 use std::io::{Error, ErrorKind};
 use yahoo_finance_api as yahoo;
-
 #[derive(Clap)]
 #[clap(
     version = "1.0",
@@ -174,8 +177,15 @@ async fn main() -> std::io::Result<()> {
     // a simple way to output a CSV header
     println!("period start,symbol,price,change %,min,max,30d avg");
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-    loop {
-        interval.tick().await;
+    let s = stream! {
+        loop {
+            interval.tick().await;
+            yield ();
+        }
+    };
+    pin_mut!(s);
+
+    while s.next().await.is_some() {
         futures::future::join_all(
             opts.symbols
                 .split(',')
@@ -184,6 +194,7 @@ async fn main() -> std::io::Result<()> {
         )
         .await;
     }
+    Ok(())
 }
 
 async fn handle_closing_data(from: &DateTime<Utc>, to: &DateTime<Utc>, symbol: &str) {
